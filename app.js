@@ -9,6 +9,7 @@ const SESSION_KEY = 'ikhlas_parent_session_v1';
 const SEEN_KEY = 'ikhlas_parent_seen_v1';
 const CLEARED_KEY = 'ikhlas_parent_cleared_v1';
 const POPUP_KEY = 'ikhlas_parent_popup_v1';
+const MAX_CHILDREN = 5;
 
 const ICONS = {
   user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20c0-3.6 3.4-6.5 7.5-6.5s7.5 2.9 7.5 6.5"/></svg>',
@@ -17,6 +18,7 @@ const ICONS = {
   empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18M3 12h18M3 17h11"/></svg>',
   megaphone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11v2a2 2 0 0 0 2 2h1l3.5 4.5V6.5L6 11H5a2 2 0 0 0-2 2Z"/><path d="M9.5 6.5 19 3v16l-9.5-3.5"/><path d="M19 9.5a3 3 0 0 1 0 5"/></svg>',
   gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>',
   reminder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h13l3 3v13H4z"/><path d="M9 9h6M9 13h6M9 17h3"/></svg>'
 };
 
@@ -26,6 +28,7 @@ let SCHOOL = null;            // parent_portal_meta/school doc
 let NOTIFS = [];              // relevant, sorted notifications
 let notifUnsub = null;
 let activeTab = 'overview';
+let SESSION = null;           // { docIds: [...], activeId, labels: { docId: {name, cls, adm} } }
 
 /* ---------------------------------------------------------------
    Boot
@@ -44,10 +47,10 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
   wireLogin();
-  const saved = loadSession();
-  if (saved && saved.docId) {
+  SESSION = loadSession();
+  if (SESSION) {
     show('loadingScreen');
-    loadRecord(saved.docId).then((ok) => { if (!ok) { clearSession(); show('loginScreen'); } });
+    bootFromSession();
   } else {
     show('loginScreen');
   }
@@ -59,68 +62,265 @@ function show(id) {
   });
 }
 
+/* Try the last-active child first; if that record is gone, fall back to the others. */
+async function bootFromSession() {
+  const order = [SESSION.activeId, ...SESSION.docIds.filter((d) => d !== SESSION.activeId)];
+  for (const id of order) {
+    const res = await loadRecord(id);
+    if (res === 'ok') { SESSION.activeId = id; rememberLabel(id); saveSession(); renderChildBar(); return; }
+    if (res === 'error') { show('loginScreen'); return; }   // offline: keep the saved session
+    removeChildFromSession(id);                              // 'missing'
+  }
+  clearSession();
+  show('loginScreen');
+}
+
 /* ---------------------------------------------------------------
-   Session
+   Session (supports several children per device)
    --------------------------------------------------------------- */
 function loadSession() {
-  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch (e) { return null; }
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch (e) { return null; }
+  if (!s) return null;
+  if (s.docId && !s.docIds) s = { docIds: [s.docId], activeId: s.docId, labels: {} };   // old single-child format
+  if (!Array.isArray(s.docIds) || !s.docIds.length) return null;
+  if (!s.activeId || !s.docIds.includes(s.activeId)) s.activeId = s.docIds[0];
+  s.labels = s.labels || {};
+  return s;
 }
-function saveSession(docId) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ docId }));
+function saveSession() {
+  if (SESSION) localStorage.setItem(SESSION_KEY, JSON.stringify(SESSION));
 }
 function clearSession() {
+  SESSION = null;
   localStorage.removeItem(SESSION_KEY);
+}
+function removeChildFromSession(docId) {
+  if (!SESSION) return;
+  SESSION.docIds = SESSION.docIds.filter((d) => d !== docId);
+  delete SESSION.labels[docId];
+  if (SESSION.activeId === docId) SESSION.activeId = SESSION.docIds[0] || null;
+  if (SESSION.docIds.length) saveSession(); else clearSession();
 }
 
 /* ---------------------------------------------------------------
    Login
    --------------------------------------------------------------- */
+function makeDocId(adm, dob) { return `${adm}__${dob.replace(/-/g, '')}`; }
+
 function wireLogin() {
-  document.getElementById('loginForm').addEventListener('submit', (e) => {
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const adm = document.getElementById('admInput').value.trim();
     const dob = document.getElementById('dobInput').value; // yyyy-mm-dd
     const errEl = document.getElementById('loginError');
     errEl.textContent = '';
     if (!adm || !dob) { errEl.textContent = 'Enter both the Admission No. and date of birth.'; return; }
-    const docId = `${adm}__${dob.replace(/-/g, '')}`;
+    const docId = makeDocId(adm, dob);
     show('loadingScreen');
-    loadRecord(docId).then((ok) => {
-      if (ok) { saveSession(docId); }
-      else { show('loginScreen'); errEl.textContent = "No matching record found. Check the Admission No. and date of birth, or contact the school office."; }
-    });
+    const res = await loadRecord(docId);
+    if (res === 'ok') {
+      SESSION = { docIds: [docId], activeId: docId, labels: {} };
+      rememberLabel(docId);
+      saveSession();
+      renderChildBar();
+    } else {
+      show('loginScreen');
+      errEl.textContent = res === 'missing'
+        ? 'No matching record found. Check the Admission No. and date of birth, or contact the school office.'
+        : 'Could not connect right now. Check your internet connection and try again.';
+    }
   });
   document.getElementById('btnLogout').addEventListener('click', () => {
     if (notifUnsub) { notifUnsub(); notifUnsub = null; }
+    closeChildModal();
     clearSession();
     RECORD = null; NOTIFS = [];
+    activeTab = 'overview';
     document.getElementById('loginForm').reset();
     show('loginScreen');
   });
 }
 
-function loadRecord(docId) {
-  return db.collection('parent_portal').doc(docId).get()
-    .then((snap) => {
-      if (!snap.exists) return false;
-      RECORD = snap.data();
-      return db.collection('parent_portal_meta').doc('school').get().catch(() => null);
-    })
-    .then((schoolSnap) => {
-      if (!RECORD) return false;
-      SCHOOL = (schoolSnap && schoolSnap.exists) ? schoolSnap.data() : {};
-      applyBranding();
-      startNotifListener();
-      show('app');
-      switchTab('overview');
-      return true;
-    })
-    .catch((err) => {
-      console.error('Could not load record', err);
-      toast('Could not connect right now. Check your internet connection and try again.', true);
-      return false;
-    });
+/* Returns 'ok' | 'missing' | 'error'. RECORD is only replaced when the load succeeds. */
+async function loadRecord(docId) {
+  try {
+    const snap = await db.collection('parent_portal').doc(docId).get();
+    if (!snap.exists) return 'missing';
+    RECORD = snap.data();
+    if (!SCHOOL) {
+      try {
+        const sc = await db.collection('parent_portal_meta').doc('school').get();
+        SCHOOL = sc.exists ? sc.data() : {};
+      } catch (e) { SCHOOL = {}; }
+    }
+    NOTIFS = [];
+    applyBranding();
+    startNotifListener();
+    show('app');
+    switchTab(activeTab);
+    return 'ok';
+  } catch (err) {
+    console.error('Could not load record', err);
+    return 'error';
+  }
 }
+
+/* ---------------------------------------------------------------
+   Multiple children: switcher bar + "Add child" sheet
+   --------------------------------------------------------------- */
+function rememberLabel(docId) {
+  if (!SESSION || !RECORD) return;
+  SESSION.labels[docId] = { name: RECORD.name || '', cls: `${RECORD.class || ''}${RECORD.section ? '-' + RECORD.section : ''}`, adm: RECORD.admissionNo || '' };
+}
+
+function renderChildBar() {
+  const bar = document.getElementById('childBar');
+  if (!bar || !SESSION) return;
+  const chips = SESSION.docIds.length > 1 ? SESSION.docIds.map((id) => {
+    const l = SESSION.labels[id] || {};
+    const first = String(l.name || 'Student').split(' ')[0];
+    return `<button class="child-chip ${id === SESSION.activeId ? 'active' : ''}" data-child="${esc(id)}">${esc(first)}</button>`;
+  }).join('') : '';
+  bar.innerHTML = chips +
+    `<button class="child-chip child-add" id="btnAddChild">${ICONS.plus}<span>${SESSION.docIds.length > 1 ? 'Add child' : 'Add another child'}</span></button>`;
+}
+
+async function switchChild(docId) {
+  if (!SESSION || docId === SESSION.activeId) return;
+  const res = await loadRecord(docId);
+  if (res === 'ok') {
+    SESSION.activeId = docId;
+    rememberLabel(docId);
+    saveSession();
+    renderChildBar();
+    window.scrollTo(0, 0);
+  } else if (res === 'missing') {
+    removeChildFromSession(docId);
+    renderChildBar();
+    toast("This child's record is no longer available. Please contact the school office.", true);
+  } else {
+    toast('Could not connect right now. Check your internet connection and try again.', true);
+  }
+}
+
+function openChildModal() {
+  closeChildModal();
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-backdrop';
+  wrap.id = 'childModal';
+  wrap.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Add another child">
+      <form id="addChildForm" novalidate>
+        <div class="modal-body">
+          <div class="set-row">
+            <div class="set-icon">${ICONS.user}</div>
+            <div class="set-text">
+              <div class="set-title">Add another child</div>
+              <div class="set-desc">Enter your other child's Admission No. and date of birth, just like on the login screen.</div>
+            </div>
+          </div>
+          <div class="field" style="margin:0;">
+            <label for="addAdm">Admission No.</label>
+            <input type="text" id="addAdm" autocomplete="off" inputmode="numeric" placeholder="e.g. 102">
+          </div>
+          <div class="field" style="margin:0;">
+            <label for="addDob">Student's date of birth</label>
+            <input type="date" id="addDob">
+          </div>
+          <p class="login-error" id="addChildError" style="margin:0;"></p>
+          <div id="childList"></div>
+        </div>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" id="btnAddCancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btnAddSubmit">Add child</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(wrap);
+  renderChildList();
+  wrap.querySelector('#addAdm').focus();
+
+  wrap.querySelector('#btnAddCancel').addEventListener('click', closeChildModal);
+  wrap.addEventListener('click', (e) => {
+    if (e.target === wrap) { closeChildModal(); return; }
+    const rm = e.target.closest('[data-remove]');
+    if (rm) removeChild(rm.dataset.remove);
+  });
+  wrap.querySelector('#addChildForm').addEventListener('submit', submitAddChild);
+}
+
+function closeChildModal() {
+  const el = document.getElementById('childModal');
+  if (el) el.remove();
+}
+
+function renderChildList() {
+  const box = document.getElementById('childList');
+  if (!box || !SESSION) return;
+  if (SESSION.docIds.length < 2) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="section-title" style="margin:6px 0 4px;">Children on this device</div>` +
+    SESSION.docIds.map((id) => {
+      const l = SESSION.labels[id] || {};
+      return `<div class="child-row">
+        <div><div class="child-row-name">${esc(l.name || 'Student')}</div><div class="child-row-meta">Class ${esc(l.cls || '\u2014')} \u00b7 Adm. No. ${esc(l.adm || '')}</div></div>
+        <button type="button" class="btn-link-danger" data-remove="${esc(id)}">Remove</button>
+      </div>`;
+    }).join('');
+}
+
+async function submitAddChild(e) {
+  e.preventDefault();
+  const adm = document.getElementById('addAdm').value.trim();
+  const dob = document.getElementById('addDob').value;
+  const errEl = document.getElementById('addChildError');
+  const btn = document.getElementById('btnAddSubmit');
+  errEl.textContent = '';
+  if (!adm || !dob) { errEl.textContent = 'Enter both the Admission No. and date of birth.'; return; }
+  const docId = makeDocId(adm, dob);
+  if (SESSION.docIds.includes(docId)) { errEl.textContent = 'This child is already added.'; return; }
+  if (SESSION.docIds.length >= MAX_CHILDREN) { errEl.textContent = `You can add up to ${MAX_CHILDREN} children.`; return; }
+
+  btn.disabled = true; btn.textContent = 'Checking\u2026';
+  const res = await loadRecord(docId);           // switches to the new child if it succeeds
+  if (res === 'ok') {
+    SESSION.docIds.push(docId);
+    SESSION.activeId = docId;
+    rememberLabel(docId);
+    saveSession();
+    renderChildBar();
+    closeChildModal();
+    window.scrollTo(0, 0);
+    toast(`${RECORD.name} added.`);
+  } else {
+    btn.disabled = false; btn.textContent = 'Add child';
+    errEl.textContent = res === 'missing'
+      ? 'No matching record found. Check the Admission No. and date of birth, or contact the school office.'
+      : 'Could not connect right now. Check your internet connection and try again.';
+  }
+}
+
+async function removeChild(docId) {
+  if (!SESSION || SESSION.docIds.length < 2) return;
+  const l = SESSION.labels[docId] || {};
+  if (!confirm(`Remove ${l.name || 'this child'} from this device? You can add them again later with their Admission No. and date of birth.`)) return;
+  const wasActive = docId === SESSION.activeId;
+  removeChildFromSession(docId);
+  if (wasActive && SESSION) {
+    const res = await loadRecord(SESSION.activeId);
+    if (res === 'ok') { rememberLabel(SESSION.activeId); saveSession(); }
+    else toast('Could not load the other child. Please try again.', true);
+  }
+  renderChildBar();
+  renderChildList();
+  toast('Child removed.');
+}
+
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#btnAddChild')) { openChildModal(); return; }
+  const chip = e.target.closest('[data-child]');
+  if (chip) switchChild(chip.dataset.child);
+});
 
 function applyBranding() {
   const name = SCHOOL && SCHOOL.name ? SCHOOL.name : 'Ikhlas School';
