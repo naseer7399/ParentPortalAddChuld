@@ -292,3 +292,30 @@ button, input, select, textarea{ font-family: inherit; font-size: inherit; color
 }
 .btn-danger-outline:active{ background:var(--danger-tint); }
 .perm-help{ margin-top:-6px; }
+
+/* ---------- Multiple children ---------- */
+.child-bar{
+  display:flex; gap:8px; overflow-x:auto; padding:10px 16px 0;
+  max-width:640px; width:100%; margin:0 auto; scrollbar-width:none;
+}
+.child-bar::-webkit-scrollbar{ display:none; }
+.child-chip{
+  flex-shrink:0; display:inline-flex; align-items:center; gap:6px;
+  padding:8px 16px; border-radius:999px; cursor:pointer;
+  border:1px solid var(--line-strong); background:var(--surface); color:var(--ink-soft);
+  font-size:13.5px; font-weight:600; white-space:nowrap;
+}
+.child-chip.active{ background:var(--primary); border-color:var(--primary); color:#fff; }
+.child-chip.child-add{ border-style:dashed; color:var(--primary); background:transparent; }
+.child-chip svg{ width:15px; height:15px; }
+.child-row{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:9px 0; border-bottom:1px solid var(--line);
+}
+.child-row:last-child{ border-bottom:none; }
+.child-row-name{ font-weight:600; font-size:14px; }
+.child-row-meta{ font-size:12px; color:var(--ink-faint); }
+.btn-link-danger{
+  background:none; border:none; color:var(--danger); font-weight:600;
+  font-size:13px; cursor:pointer; padding:6px 4px;
+}
