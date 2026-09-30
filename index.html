@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ikhlas Parent Portal</title>
+<link rel="stylesheet" href="style.css">
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1F3B57">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ikhlas Parent">
+</head>
+<body>
+
+<!-- Not configured yet -->
+<div id="setupScreen" class="auth-screen hidden">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="badge-mark">IP</div>
+      <h1>Parent Portal not set up yet</h1>
+      <p>This app needs the school's Firebase details</p>
+    </div>
+    <p class="small-note">Open <code>firebase-config.js</code> in this app's files and paste in the same Firebase project config used by the school's main app, then reload this page.</p>
+  </div>
+</div>
+
+<!-- Login -->
+<div id="loginScreen" class="auth-screen hidden">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="badge-mark" id="loginBadge">IP</div>
+      <h1 id="loginSchoolName">Parent Portal</h1>
+      <p>See your child's fees, payments and school notices</p>
+    </div>
+    <form id="loginForm">
+      <div class="field">
+        <label for="admInput">Admission No.</label>
+        <input type="text" id="admInput" autocomplete="off" placeholder="e.g. 101" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="dobInput">Student's date of birth</label>
+        <input type="date" id="dobInput">
+      </div>
+      <p class="login-error" id="loginError"></p>
+      <button type="submit" class="btn btn-primary" style="width:100%;">View my child's details</button>
+    </form>
+    <p class="small-note" style="text-align:center;margin-top:14px;">Don't have these details? Ask login details at school office </p>
+    <p class="app-copyright">&copy; 2026 Naseer ISM Android All rights reserved</p>
+  </div>
+</div>
+
+<!-- Connecting -->
+<div id="loadingScreen" class="auth-screen hidden">
+  <div class="login-card" style="text-align:center;">
+    <div class="spinner"></div>
+    <p class="small-note">Connecting\u2026</p>
+  </div>
+</div>
+
+<!-- Main app -->
+<div id="app" class="hidden">
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="badge-mark small" id="appBadge">IP</div>
+      <div>
+        <div id="appSchoolName" class="school-name"></div>
+        <div id="appStudentLine" class="student-line"></div>
+      </div>
+    </div>
+    <button class="icon-btn" id="btnLogout" title="Log out" aria-label="Log out">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+    </button>
+  </header>
+
+  <main class="content" id="content"></main>
+
+  <nav class="tabbar" id="tabbar">
+    <button class="tab-btn" data-tab="overview"><span class="tab-icon" data-icon="user"></span><span>Overview</span></button>
+    <button class="tab-btn" data-tab="fees"><span class="tab-icon" data-icon="fees"></span><span>Fees</span></button>
+    <button class="tab-btn" data-tab="notifications"><span class="tab-icon" data-icon="bell"></span><span>Notices</span><span class="tab-badge hidden" id="notifBadge">0</span></button>
+  </nav>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
